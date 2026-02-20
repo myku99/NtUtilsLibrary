@@ -7,18 +7,24 @@ unit NtUtils.VirtDisk;
 interface
 
 uses
-  Ntapi.VirtDisk, NtUtils;
+  Ntapi.VirtDisk, Ntapi.ntseapi, NtUtils;
+
+// Determine a disk type based on the file extension
+function VdskxDiskTypeFromName(
+  const FileName: String
+): TVirtualStorageDeviceId;
 
 // Open an existing virtual disk
 function VdskxOpenVirtualDisk(
   out hxVirtualDisk: IHandle;
   const FileName: String;
-  DeviceId: TVirtualStorageDeviceId = VIRTUAL_STORAGE_TYPE_DEVICE_ISO;
-  Flags: TOpenVirtualDiskFlags = 0;
-  AccessMask: TVirtualDiskAccessMask = VIRTUAL_DISK_ACCESS_READ
+  AccessMask: TVirtualDiskAccessMask = VIRTUAL_DISK_ACCESS_READ;
+  DeviceId: TVirtualStorageDeviceId = VIRTUAL_STORAGE_TYPE_DEVICE_UNKNOWN;
+  Flags: TOpenVirtualDiskFlags = 0
 ): TNtxStatus;
 
 // Attach a virtual disk
+[RequiredPrivilege(SE_MANAGE_VOLUME_PRIVILEGE, rpSometimes)]
 function VdskxSurfaceVirualDisk(
   const hxVirtualDisk: IHandle;
   Flags: TAttachVirtualDiskFlags = ATTACH_VIRTUAL_DISK_FLAG_READ_ONLY;
@@ -26,6 +32,7 @@ function VdskxSurfaceVirualDisk(
 ): TNtxStatus;
 
 // Detach a virtual disk
+[RequiredPrivilege(SE_MANAGE_VOLUME_PRIVILEGE, rpSometimes)]
 function VdskxUnsurfaceVirualDisk(
   const hxVirtualDisk: IHandle
 ): TNtxStatus;
@@ -46,11 +53,34 @@ uses
 {$IFOPT R+}{$DEFINE R+}{$ENDIF}
 {$IFOPT Q+}{$DEFINE Q+}{$ENDIF}
 
+function VdskxDiskTypeFromName;
+var
+  Extension: String;
+begin
+  Extension := RtlxExtractExtensionPath(FileName);
+
+  if RtlxEqualStrings(Extension, 'iso') then
+    Result := VIRTUAL_STORAGE_TYPE_DEVICE_ISO
+  else if RtlxEqualStrings(Extension, 'vhd') or
+    RtlxEqualStrings(Extension, 'avhd') then
+    Result := VIRTUAL_STORAGE_TYPE_DEVICE_VHD
+  else if RtlxEqualStrings(Extension, 'vhdx') or
+    RtlxEqualStrings(Extension, 'avhdx') then
+    Result := VIRTUAL_STORAGE_TYPE_DEVICE_VHDX
+  else if RtlxEqualStrings(Extension, 'vhds') then
+    Result := VIRTUAL_STORAGE_TYPE_DEVICE_VHDSET
+  else
+    Result := VIRTUAL_STORAGE_TYPE_DEVICE_UNKNOWN;
+end;
+
 function VdskxOpenVirtualDisk;
 var
   EA: TVirtualDiskEaBuffer;
   EABuffer: IFullEaInformation;
 begin
+  if DeviceId = VIRTUAL_STORAGE_TYPE_DEVICE_UNKNOWN then
+    DeviceId := VdskxDiskTypeFromName(FileName);
+
   // Prepare the extended attribute describing flags and options
   EA := Default(TVirtualDiskEaBuffer);
   EA.Identifier := GUID_DEVINTERFACE_SURFACE_VIRTUAL_DRIVE;
@@ -101,6 +131,7 @@ begin
   // Issue the IOCTL
   Result := NtxDeviceIoControlFile(hxVirtualDisk,
     IOCTL_STORAGE_SURFACE_VIRTUAL_DISK, Input.Data, Input.Size);
+  Result.LastCall.ExpectedPrivilege := SE_MANAGE_VOLUME_PRIVILEGE;
 end;
 
 function VdskxUnsurfaceVirualDisk;
@@ -113,6 +144,7 @@ begin
 
   Result := NtxDeviceIoControlFile(hxVirtualDisk,
     IOCTL_STORAGE_UNSURFACE_VIRTUAL_DISK, @Input, SizeOf(Input));
+  Result.LastCall.ExpectedPrivilege := SE_MANAGE_VOLUME_PRIVILEGE;
 end;
 
 function VdskxQueryNameVirualDisk;

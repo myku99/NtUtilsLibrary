@@ -145,8 +145,8 @@ type
     AccessMask: TVirtualDiskAccessMask;
     RWDepth: Cardinal;
     Version: Cardinal;
-    GetInfoOnly: Cardinal;
-    ReadOnly: Cardinal;
+    GetInfoOnly: LongBool; // for version 2
+    ReadOnly: Cardinal;    // for version 2
     AlternateOpenId: TGuid;
     AlternateOpenType: Byte;
   end;
